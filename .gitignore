@@ -1,0 +1,13 @@
+# Secrets: never commit these
+.env
+
+# Virtual environment (packages can be reinstalled from requirements.txt)
+venv/
+
+# Python cache files (generated automatically)
+__pycache__/
+*.pyc
+
+# Simulator outputs that MAGE will generate
+*.vvp
+*.vcd
