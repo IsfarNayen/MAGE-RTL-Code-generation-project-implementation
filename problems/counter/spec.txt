@@ -1,0 +1,7 @@
+Implement a Verilog module named top_module with these ports:
+  input clk, input reset, input enable, output reg [3:0] q
+
+It is a 4-bit counter. On each rising edge of clk:
+- if reset is high, q is set to 0 (synchronous, active-high reset);
+- otherwise, if enable is high, q increases by 1 (wrapping from 15 back to 0);
+- otherwise q holds its value.

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-REQUIRED_VARS = ["GEMINI_API_KEY", "GEMINI_MODEL", "IVERILOG_PATH", "VVP_PATH"]
+REQUIRED_VARS = ["GEMINI_API_KEY", "IVERILOG_PATH", "VVP_PATH", "GEMINI_MODEL"]
 
 # A tiny Verilog design + testbench used only to prove the simulator works.
 TEST_VERILOG = """

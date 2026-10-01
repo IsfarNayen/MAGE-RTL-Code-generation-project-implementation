@@ -2,7 +2,9 @@
 .env
 
 # Virtual environment (packages can be reinstalled from requirements.txt)
-venv/
+.venv/
+outputs/
+*.egg-info/
 
 # Python cache files (generated automatically)
 __pycache__/
