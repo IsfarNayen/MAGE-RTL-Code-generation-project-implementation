@@ -1,0 +1,20 @@
+Implement a Verilog module named top_module with these ports:
+  input clk, input reset, input din, output reg detected
+
+It is a sequence detector that looks for the bit pattern 1011 on the input din.
+Everything happens on the rising edge of clk:
+- If reset is high, the module forgets all previous input bits and detected is
+  set to 0 (synchronous, active-high reset). The value of din during a reset
+  cycle is ignored and is NOT remembered.
+- Otherwise, din is sampled as the newest bit, and detected is set to 1 if the
+  four most recent sampled bits (including the one sampled on this edge) are,
+  from oldest to newest, 1, 0, 1, 1. If not, detected is set to 0.
+
+Notes:
+- Matches may overlap. For example, the input stream 1 0 1 1 0 1 1 gives
+  detected = 1 after the 4th bit and again after the 7th bit.
+- detected is a registered output: it changes only at a rising edge of clk,
+  and it is high for exactly one clock cycle per match (unless the next four
+  bits also form a match).
+- After reset, no bits are remembered, so at least four new bits must be
+  sampled before detected can become 1.

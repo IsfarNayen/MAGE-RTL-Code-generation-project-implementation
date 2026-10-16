@@ -62,11 +62,13 @@ def run_simulation(config: Config, design_code: str, testbench_code: str) -> Sim
 
     total = int(match.group(1))
     mismatches = int(match.group(2))
+    score = 1 - mismatches / total if total else 0.0
+
     return SimulationResult(
         compiled=True,
         log=log,
         total_checks=total,
         mismatches=mismatches,
-        score=1 - mismatches / total if total else 0.0,
+        score=score,
         passed=total > 0 and mismatches == 0,
     )

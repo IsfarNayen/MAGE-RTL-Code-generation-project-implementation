@@ -1,0 +1,143 @@
+Implement a Verilog module named top_module with these ports:
+  input             clk,
+  input             reset,
+  input             start,
+  input             cfg_we,
+  input      [15:0] cfg_timeout,
+  input      [15:0] cfg_window,
+  input      [1:0]  cfg_prescale,
+  input             cfg_lock,
+  input             kick_valid,
+  input      [7:0]  kick_data,
+  input             clr_err,
+  output reg [15:0] count,
+  output reg        running,
+  output reg        bark,
+  output reg        bite,
+  output reg        locked,
+  output reg        kick_err,
+  output reg [2:0]  bite_count,
+  output            warn
+
+It is a windowed, two-stage watchdog timer with a programmable prescaler, a
+two-byte kick key, a configuration lock and a fixed-length reset ("bite") pulse.
+Everything is synchronous to the rising edge of clk. There are no combinational
+paths from any input to any output.
+
+-----------------------------------------------------------------------------
+1. Internal state
+-----------------------------------------------------------------------------
+Besides the output registers, the design keeps these internal registers:
+  timeout_r  [15:0]  reload value of the down-counter
+  window_r   [15:0]  kick window limit
+  prescale_r [1:0]   prescaler select
+  tick_cnt   [7:0]   prescaler counter
+  key_armed          1 after a valid first key byte has been received
+  bite_cnt   [1:0]   counts the cycles of the bite pulse
+
+-----------------------------------------------------------------------------
+2. Reset (synchronous, active-high)
+-----------------------------------------------------------------------------
+On a rising edge with reset high, and regardless of every other input:
+  timeout_r = 16'd30      window_r = 16'hFFFF     prescale_r = 2'd0
+  tick_cnt  = 0           key_armed = 0           bite_cnt   = 0
+  count     = 0           running   = 0           bark       = 0
+  bite      = 0           locked    = 0           kick_err   = 0
+  bite_count = 0
+Reset is the only way to clear locked and bite_count.
+
+-----------------------------------------------------------------------------
+3. Prescaler
+-----------------------------------------------------------------------------
+prescale_r selects a divisor D:
+  0 -> D = 1,   1 -> D = 4,   2 -> D = 16,   3 -> D = 64
+A "tick" happens on a rising edge (while running) when tick_cnt >= D-1.
+On a tick, tick_cnt becomes 0; on a non-tick edge while running, tick_cnt
+increments by 1. Note the comparison is ">=", so lowering prescale_r while
+running never makes tick_cnt overshoot.
+
+-----------------------------------------------------------------------------
+4. Behaviour on each rising edge when reset is low
+-----------------------------------------------------------------------------
+All decisions below use the values the registers held BEFORE the edge
+(normal registered semantics). If two rules assign the same register in the
+same cycle, the rule listed later wins.
+
+Rule A - configuration write:
+  If cfg_we is high and locked is 0:
+    timeout_r = cfg_timeout, window_r = cfg_window, prescale_r = cfg_prescale.
+  If locked is 1, the write is silently ignored.
+  A write while running does not touch count; the new timeout_r is used at the
+  next reload. The new window_r and prescale_r take effect from the next edge.
+
+Rule B - lock:
+  If cfg_lock is high, locked = 1 (sticky until reset). A write and a lock in
+  the same cycle: the write is accepted (it saw locked = 0).
+
+Rule C - error clear:
+  If clr_err is high, kick_err = 0. If Rule D sets kick_err in the same cycle,
+  the set wins (kick_err ends up 1).
+
+Rule D - main state machine. Exactly one of D1/D2/D3 applies, chosen by the
+pre-edge values of bite and running:
+
+  D1. bite == 1 (bite pulse in progress):
+      If bite_cnt == 3: bite = 0, bite_cnt = 0.
+      Otherwise:        bite_cnt = bite_cnt + 1.
+      So bite is high for exactly 4 consecutive cycles. start, kick_valid and
+      kick_data are ignored during this phase.
+
+  D2. bite == 0 and running == 0 (idle):
+      If start is high: running = 1, count = timeout_r, tick_cnt = 0,
+      bark = 0, key_armed = 0.
+      kick_valid is ignored while idle (it never sets kick_err).
+
+  D3. running == 1:
+      start is ignored. First the kick is classified (only if kick_valid = 1):
+
+      ARM  : kick_data == 8'hA5
+             key_armed = 1. (Tick processing still happens this cycle.)
+      FIRE : kick_data == 8'h5A and key_armed == 1
+             key_armed = 0, and then:
+               if count > window_r  -> EARLY KICK: kick_err = 1 and BITE ENTRY.
+               else                 -> SERVICE: count = timeout_r,
+                                       tick_cnt = 0, bark = 0.
+             No tick processing happens in a FIRE cycle.
+      BAD  : any other kick_data, including 8'h5A while key_armed == 0
+             key_armed = 0, kick_err = 1. (Tick processing still happens.)
+
+      The two key bytes do not need to be on consecutive cycles; key_armed
+      stays set until a FIRE, a BAD byte, a bite, or reset. Repeated A5 bytes
+      just keep it armed.
+
+      Tick processing (every running cycle that is not a FIRE cycle):
+        If tick_cnt >= D-1 (tick):
+          tick_cnt = 0, and
+            if count != 0              -> count = count - 1
+            else if bark == 0          -> bark = 1, count = timeout_r
+                                          (first stage: warning interrupt,
+                                           counter reloads for a second chance)
+            else (count == 0, bark==1) -> BITE ENTRY
+        Else:
+          tick_cnt = tick_cnt + 1.
+
+BITE ENTRY (used by EARLY KICK and by the second-stage timeout):
+  bite = 1, bite_cnt = 0, running = 0, count = 0, bark = 0,
+  key_armed = 0, tick_cnt = 0,
+  bite_count = bite_count + 1, saturating at 7 (it never wraps).
+After the 4-cycle bite pulse the watchdog is idle and needs a new start.
+
+-----------------------------------------------------------------------------
+5. warn output (combinational, from registers only)
+-----------------------------------------------------------------------------
+  warn = running & ~bark & (count < (timeout_r >> 2))
+i.e. an early-warning flag raised during the first stage when the counter has
+fallen below a quarter of the current reload value.
+
+-----------------------------------------------------------------------------
+6. Notes / corner cases
+-----------------------------------------------------------------------------
+- timeout_r == 0 is legal: after start, the first tick barks, the next bites.
+- A SERVICE kick during the bark stage clears bark and reloads the counter.
+- window_r == 16'hFFFF means the window is always open (no early kicks).
+- A FIRE with count exactly equal to window_r is a valid SERVICE.

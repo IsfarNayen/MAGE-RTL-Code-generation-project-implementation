@@ -55,6 +55,8 @@ class LLMClient:
                 last_attempt = attempt == self._max_attempts
                 if err.code not in RETRYABLE_CODES or last_attempt:
                     raise
+
+                print(f"  Gemini is busy (HTTP {err.code}), retrying in {min(2**attempt, 60)}s " f"(attempt {attempt}/{self._max_attempts})...")
                 self._sleep(min(2**attempt, 60))  # wait 2, 4, 8, 16, 32 seconds
 
         raise RuntimeError("unreachable")
